@@ -130,31 +130,31 @@ func init() {
 
 // GetNotificationForName returns a notification matching the given name
 // or error if no matching notification can be found.
-func (m *ManagedNotification) GetNotificationForName(n string) (*Notification, error) {
-	for _, t := range m.Spec.Notifications {
-		if t.Name == n {
-			return &t, nil
+func (m *ManagedNotification) GetNotificationForName(name string) (*Notification, error) {
+	for _, n := range m.Spec.Notifications {
+		if n.Name == name {
+			return &n, nil
 		}
 	}
-	return nil, fmt.Errorf("notification with name %v not found", n)
+	return nil, fmt.Errorf("notification with name %v not found", name)
 }
 
 // GetNotificationRecord returns the history for a notification matching
 // the given name or error if no matching notification can be found.
-func (m *ManagedNotificationStatus) GetNotificationRecord(n string) (*NotificationRecord, error) {
-	for _, t := range m.Notifications {
-		if t.Name == n {
-			return &t, nil
+func (m *ManagedNotificationStatus) GetNotificationRecord(name string) (*NotificationRecord, error) {
+	for _, r := range m.Notifications {
+		if r.Name == name {
+			return &r, nil
 		}
 	}
-	return nil, fmt.Errorf("notification with name %v not found", n)
+	return nil, fmt.Errorf("notification with name %v not found", name)
 }
 
 // HasNotificationRecord returns whether or not a notification status history exists
 // with the given name
-func (m *ManagedNotificationStatus) HasNotificationRecord(n string) bool {
-	for _, t := range m.Notifications {
-		if t.Name == n {
+func (m *ManagedNotificationStatus) HasNotificationRecord(name string) bool {
+	for _, r := range m.Notifications {
+		if r.Name == name {
 			return true
 		}
 	}
@@ -162,21 +162,21 @@ func (m *ManagedNotificationStatus) HasNotificationRecord(n string) bool {
 }
 
 // CanBeSent returns true if a service log from the notification is allowed to be sent
-func (m *ManagedNotification) CanBeSent(n string) (bool, error) {
+func (m *ManagedNotification) CanBeSent(name string) (bool, error) {
 
 	// If no notification exists, one cannot be sent
-	t, err := m.GetNotificationForName(n)
+	n, err := m.GetNotificationForName(name)
 	if err != nil {
 		return false, err
 	}
 
 	// If no status history exists for the notification, it is safe to send a notification
-	if !m.Status.HasNotificationRecord(n) {
+	if !m.Status.HasNotificationRecord(name) {
 		return true, nil
 	}
 
 	// If a status history exists but can't be fetched, this is an irregular situation
-	s, err := m.Status.GetNotificationRecord(n)
+	s, err := m.Status.GetNotificationRecord(name)
 	if err != nil {
 		return false, err
 	}
@@ -188,7 +188,7 @@ func (m *ManagedNotification) CanBeSent(n string) (bool, error) {
 		return true, nil
 	}
 	now := time.Now()
-	nextresend := sentCondition.LastTransitionTime.Time.Add(time.Duration(t.ResendWait) * time.Hour)
+	nextresend := sentCondition.LastTransitionTime.Time.Add(time.Duration(n.ResendWait) * time.Hour)
 	if now.Before(nextresend) {
 		return false, nil
 	}
@@ -209,9 +209,9 @@ func (conditions Conditions) GetCondition(t NotificationConditionType) *Notifica
 }
 
 // NewNotificationRecord adds a new notification record status for the given name
-func (m *ManagedNotificationStatus) NewNotificationRecord(n string) {
+func (m *ManagedNotificationStatus) NewNotificationRecord(name string) {
 	r := NotificationRecord{
-		Name:                n,
+		Name:                name,
 		ServiceLogSentCount: 0,
 		Conditions:          []NotificationCondition{},
 	}
@@ -253,12 +253,41 @@ func (nr *NotificationRecord) SetStatus(nct NotificationConditionType, reason st
 }
 
 // SetCondition adds or updates a condition in a notification record
-func (c *Conditions) SetCondition(new NotificationCondition) {
+func (c *Conditions) SetCondition(nc NotificationCondition) {
 	for i, condition := range *c {
-		if condition.Type == new.Type {
-			(*c)[i] = new
+		if condition.Type == nc.Type {
+			(*c)[i] = nc
 			return
 		}
 	}
-	*c = append(*c, new)
+	*c = append(*c, nc)
+}
+
+// InitStatus initiate the conditions for the notification
+func (nr *NotificationRecord) InitStatus() error {
+	conditions := []NotificationCondition{
+		{
+			Type:               ConditionAlertFiring,
+			Status:             corev1.ConditionFalse,
+			Reason:             "",
+			LastTransitionTime: nil,
+		},
+		{
+			Type:               ConditionAlertResolved,
+			Status:             corev1.ConditionFalse,
+			Reason:             "",
+			LastTransitionTime: nil,
+		},
+		{
+			Type:               ConditionServiceLogSent,
+			Status:             corev1.ConditionFalse,
+			Reason:             "",
+			LastTransitionTime: nil,
+		},
+	}
+
+	for _, c := range conditions {
+		nr.Conditions.SetCondition(c)
+	}
+	return nil
 }
